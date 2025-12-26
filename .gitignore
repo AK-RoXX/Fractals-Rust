@@ -1,0 +1,18 @@
+# --- Rust specific ---
+# The target directory contains all the compiled binaries and build artifacts.
+/target/
+
+# --- Cargo specific ---
+# These are temporary files generated during builds or tests.
+**/*.rs.bk
+Cargo.lock
+
+# --- OS / IDE specific ---
+# Windows thumbnail cache
+Thumbs.db
+# macOS folder attributes
+.DS_Store
+# VS Code settings and local workspace data
+.vscode/
+
+*.png
