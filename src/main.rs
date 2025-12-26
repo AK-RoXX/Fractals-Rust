@@ -61,34 +61,26 @@ fn main() {
         // 5. Render Engine
         buffer.par_chunks_mut(WIDTH).enumerate().for_each(|(y, row)| {
             for x in 0..WIDTH {
-            let mut zx = x_min + (x as f64 / WIDTH as f64) * (x_max - x_min);
-            let mut zy = y_min + (y as f64 / HEIGHT as f64) * (y_max - y_min);
-            let mut i = 0;
+                let mut zx = x_min + (x as f64 / WIDTH as f64) * (x_max - x_min);
+                let mut zy = y_min + (y as f64 / HEIGHT as f64) * (y_max - y_min);
+                let mut i = 0;
 
-            while zx * zx + zy * zy <= 100.0 && i < max_iter { // Increased escape radius to 100 for better smoothing
-                let tmp = zx * zx - zy * zy + seed_x;
-                zy = 2.0 * zx * zy + seed_y;
-                zx = tmp;
-                i += 1;
-            }
+                while zx * zx + zy * zy <= 4.0 && i < max_iter {
+                    let tmp = zx * zx - zy * zy + seed_x;
+                    zy = 2.0 * zx * zy + seed_y;
+                    zx = tmp;
+                    i += 1;
+                }
 
-            if i == max_iter {
-                row[x] = 0; 
-            } else {
-                // 1. THE SMOOTHING MATH
-                // Calculate the fractional part
-                let log_zn = (zx * zx + zy * zy).ln() / 2.0;
-                let nu = (log_zn / 2.0f64.ln()).ln() / 2.0f64.ln();
-                let smooth_i = i as f64 + 1.0 - nu;
-
-                // 2. THE COLOR GRADIENT
-                // Sine waves to create a smooth, infinite color loop
-                let r = ( (smooth_i * 0.1 + 0.0).sin() * 127.0 + 128.0) as u32;
-                let g = ( (smooth_i * 0.1 + 2.0).sin() * 127.0 + 128.0) as u32;
-                let b = ( (smooth_i * 0.1 + 4.0).sin() * 127.0 + 128.0) as u32;
-                
-                row[x] = (r << 16) | (g << 8) | b;
-            }
+                if i == max_iter {
+                    row[x] = 0; 
+                } else {
+                    // Smooth-ish color mapping
+                    let r = (i * 4) % 255;
+                    let g = (i * 7) % 255;
+                    let b = (i * 13) % 255;
+                    row[x] = (r << 16) | (g << 8) | b;
+                }
             }
         });
 
