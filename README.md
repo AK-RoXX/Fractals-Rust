@@ -22,7 +22,7 @@ A high-performance, real-time fractal generator built with Rust. This project us
    image = "0.24"
    ```
 
-## 📦 ### Running the App
+## 📦 Running the App
 
 For the best experience, always run in **release mode** to enable compiler optimizations:
 
