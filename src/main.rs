@@ -1,89 +1,155 @@
-use minifb::{Key, MouseButton, Window, WindowOptions};
+use pixels::{Pixels, SurfaceTexture};
 use rayon::prelude::*;
-use rand::Rng; 
+use winit::dpi::LogicalSize;
+use winit::event::{Event, WindowEvent, MouseButton, VirtualKeyCode, ElementState};
+use winit::event_loop::{ControlFlow, EventLoop};
+use winit::window::WindowBuilder;
+use rand::Rng;
 
-const WIDTH: usize = 800;
-const HEIGHT: usize = 600;
+const WIDTH: u32 = 800;
+const HEIGHT: u32 = 600;
+
+struct FractalState {
+    seed_x: f64,
+    seed_y: f64,
+    x_min: f64, x_max: f64,
+    y_min: f64, y_max: f64,
+    max_iter: u32,
+    color_speed: f32,
+}
 
 fn main() {
-    let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
-    let mut window = Window::new(
-        "Fractal: Space=Random, RightClick=Reset, Arrows=Tweak",
-        WIDTH, HEIGHT, WindowOptions::default()
-    ).unwrap();
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new()
+        .with_title("Fractal Studio: Space=Random, Arrows=Morph, Click=Zoom")
+        .with_inner_size(LogicalSize::new(WIDTH as f64, HEIGHT as f64))
+        .build(&event_loop)
+        .unwrap();
 
-    // Initial Seed
-    let mut seed_x = -0.7;
-    let mut seed_y = 0.27;
+    let mut pixels = {
+        let window_size = window.inner_size();
+        let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
+        Pixels::new(WIDTH, HEIGHT, surface_texture).unwrap()
+    };
 
-    // View boundaries
-    let mut x_min = -1.5; let mut x_max = 1.5;
-    let mut y_min = -1.0; let mut y_max = 1.0;
-    let max_iter = 150; 
+    let mut state = FractalState {
+        seed_x: -0.7, seed_y: 0.27,
+        x_min: -1.5, x_max: 1.5,
+        y_min: -1.0, y_max: 1.0,
+        max_iter: 150,
+        color_speed: 0.1,
+    };
 
+    let mut mouse_pos = (0.0, 0.0);
     let mut rng = rand::thread_rng();
-    
-    while window.is_open() && !window.is_key_down(Key::Escape) {
-        
-        // 1. Randomize Feature (Spacebar)
-        if window.is_key_pressed(Key::Space, minifb::KeyRepeat::No) {
-            seed_x = rng.gen_range(-1.0..1.0);
-            seed_y = rng.gen_range(-1.0..1.0);
-            println!("New Seed: {}, {}", seed_x, seed_y);
-        }
 
-        // 2. Reset Feature (Right Click)
-        if window.get_mouse_down(MouseButton::Right) {
-            x_min = -1.5; x_max = 1.5;
-            y_min = -1.0; y_max = 1.0;
-        }
-
-        // 3. Arrow Key Tweaks
-        if window.is_key_down(Key::Up)    { seed_y += 0.002; }
-        if window.is_key_down(Key::Down)  { seed_y -= 0.002; }
-        if window.is_key_down(Key::Left)  { seed_x -= 0.002; }
-        if window.is_key_down(Key::Right) { seed_x += 0.002; }
-        
-        // 4. Zoom Logic (Left Click)
-        if let Some((m_x, m_y)) = window.get_mouse_pos(minifb::MouseMode::Discard) {
-            if window.get_mouse_down(MouseButton::Left) {
-                let zoom = 0.97; // Slightly slower zoom for better control
-                let w = x_max - x_min; let h = y_max - y_min;
-                let cx = x_min + (m_x as f64 / WIDTH as f64) * w;
-                let cy = y_min + (m_y as f64 / HEIGHT as f64) * h;
-                x_min = cx - (m_x as f64 / WIDTH as f64) * w * zoom;
-                x_max = x_min + w * zoom;
-                y_min = cy - (m_y as f64 / HEIGHT as f64) * h * zoom;
-                y_max = y_min + h * zoom;
-            }
-        }
-
-        // 5. Render Engine
-        buffer.par_chunks_mut(WIDTH).enumerate().for_each(|(y, row)| {
-            for x in 0..WIDTH {
-                let mut zx = x_min + (x as f64 / WIDTH as f64) * (x_max - x_min);
-                let mut zy = y_min + (y as f64 / HEIGHT as f64) * (y_max - y_min);
-                let mut i = 0;
-
-                while zx * zx + zy * zy <= 4.0 && i < max_iter {
-                    let tmp = zx * zx - zy * zy + seed_x;
-                    zy = 2.0 * zx * zy + seed_y;
-                    zx = tmp;
-                    i += 1;
+    event_loop.run(move |event, _, control_flow| {
+        match event {
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                
+                WindowEvent::CursorMoved { position, .. } => {
+                    mouse_pos = (position.x, position.y);
                 }
 
-                if i == max_iter {
-                    row[x] = 0; 
-                } else {
-                    // Smooth-ish color mapping
-                    let r = (i * 4) % 255;
-                    let g = (i * 7) % 255;
-                    let b = (i * 13) % 255;
-                    row[x] = (r << 16) | (g << 8) | b;
+                // 1. KEYBOARD CONTROLS
+                WindowEvent::KeyboardInput { input, .. } => {
+                    if input.state == ElementState::Pressed {
+                        if let Some(key) = input.virtual_keycode {
+                            match key {
+                                // Spacebar: Randomize Seed
+                                VirtualKeyCode::Space => {
+                                    state.seed_x = rng.gen_range(-1.0..1.0);
+                                    state.seed_y = rng.gen_range(-1.0..1.0);
+                                    println!("New Seed: {}, {}", state.seed_x, state.seed_y);
+                                }
+                                // Arrows: Fine-tune Morphing
+                                VirtualKeyCode::Up    => state.seed_y += 0.001,
+                                VirtualKeyCode::Down  => state.seed_y -= 0.001,
+                                VirtualKeyCode::Left  => state.seed_x -= 0.001,
+                                VirtualKeyCode::Right => state.seed_x += 0.001,
+                                // Detail Control
+                                VirtualKeyCode::W     => state.max_iter += 10,
+                                VirtualKeyCode::S     => if state.max_iter > 10 { state.max_iter -= 10 },
+                                _ => (),
+                            }
+                        }
+                    }
                 }
-            }
-        });
 
-        window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
-    }
+                // 2. MOUSE CONTROLS (Zoom/Reset)
+                WindowEvent::MouseInput { state: mouse_state, button, .. } => {
+                    if mouse_state == ElementState::Pressed {
+                        match button {
+                            MouseButton::Left => {
+                                let (m_x, m_y) = mouse_pos;
+                                let w = state.x_max - state.x_min;
+                                let h = state.y_max - state.y_min;
+                                let cx = state.x_min + (m_x / WIDTH as f64) * w;
+                                let cy = state.y_min + (m_y / HEIGHT as f64) * h;
+                                
+                                let zoom = 0.5; 
+                                state.x_min = cx - (m_x / WIDTH as f64) * w * zoom;
+                                state.x_max = state.x_min + w * zoom;
+                                state.y_min = cy - (m_y / HEIGHT as f64) * h * zoom;
+                                state.y_max = state.y_min + h * zoom;
+                            }
+                            MouseButton::Right => {
+                                state.x_min = -1.5; state.x_max = 1.5;
+                                state.y_min = -1.0; state.y_max = 1.0;
+                            }
+                            _ => (),
+                        }
+                    }
+                }
+                _ => (),
+            },
+
+            Event::MainEventsCleared => {
+                render_fractal(pixels.frame_mut(), &state);
+                window.request_redraw();
+            }
+
+            Event::RedrawRequested(_) => {
+                pixels.render().unwrap();
+            }
+            _ => (),
+        }
+    });
+}
+
+fn render_fractal(frame: &mut [u8], state: &FractalState) {
+    frame.par_chunks_exact_mut(WIDTH as usize * 4).enumerate().for_each(|(y, row)| {
+        for x in 0..WIDTH as usize {
+            let mut zx = state.x_min + (x as f64 / WIDTH as f64) * (state.x_max - state.x_min);
+            let mut zy = state.y_min + (y as f64 / HEIGHT as f64) * (state.y_max - state.y_min);
+            let mut i = 0;
+
+            while zx * zx + zy * zy <= 100.0 && i < state.max_iter {
+                let tmp = zx * zx - zy * zy + state.seed_x;
+                zy = 2.0 * zx * zy + state.seed_y;
+                zx = tmp;
+                i += 1;
+            }
+
+            let (r, g, b) = if i == state.max_iter {
+                (0, 0, 0)
+            } else {
+                let log_zn = (zx * zx + zy * zy).ln() / 2.0;
+                let nu = (log_zn / 2.0f64.ln()).ln() / 2.0f64.ln();
+                let smooth_i = i as f64 + 1.0 - nu;
+
+                let r = ((smooth_i * state.color_speed as f64 + 0.0).sin() * 127.0 + 128.0) as u8;
+                let g = ((smooth_i * state.color_speed as f64 + 2.0).sin() * 127.0 + 128.0) as u8;
+                let b = ((smooth_i * state.color_speed as f64 + 4.0).sin() * 127.0 + 128.0) as u8;
+                (r, g, b)
+            };
+
+            let pixel_index = x * 4;
+            row[pixel_index] = r;
+            row[pixel_index + 1] = g;
+            row[pixel_index + 2] = b;
+            row[pixel_index + 3] = 255;
+        }
+    });
 }
