@@ -18,10 +18,17 @@ struct FractalState {
     color_speed: f32,
 }
 
+struct InputState {
+    left: bool,
+    right: bool,
+    up: bool,
+    down: bool,
+}
+
 fn main() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("Fractal Studio: Space=Random, Arrows=Morph, Click=Zoom")
+        .with_title("Fractal Studio: Smooth Glide Mode")
         .with_inner_size(LogicalSize::new(WIDTH as f64, HEIGHT as f64))
         .build(&event_loop)
         .unwrap();
@@ -40,6 +47,7 @@ fn main() {
         color_speed: 0.1,
     };
 
+    let mut input = InputState { left: false, right: false, up: false, down: false };
     let mut mouse_pos = (0.0, 0.0);
     let mut rng = rand::thread_rng();
 
@@ -47,51 +55,40 @@ fn main() {
         match event {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::CursorMoved { position, .. } => mouse_pos = (position.x, position.y),
                 
-                WindowEvent::CursorMoved { position, .. } => {
-                    mouse_pos = (position.x, position.y);
-                }
-
-                // 1. KEYBOARD CONTROLS
-                WindowEvent::KeyboardInput { input, .. } => {
-                    if input.state == ElementState::Pressed {
-                        if let Some(key) = input.virtual_keycode {
-                            match key {
-                                // Spacebar: Randomize Seed
-                                VirtualKeyCode::Space => {
-                                    state.seed_x = rng.gen_range(-1.0..1.0);
-                                    state.seed_y = rng.gen_range(-1.0..1.0);
-                                    println!("New Seed: {}, {}", state.seed_x, state.seed_y);
-                                }
-                                // Arrows: Fine-tune Morphing
-                                VirtualKeyCode::Up    => state.seed_y += 0.001,
-                                VirtualKeyCode::Down  => state.seed_y -= 0.001,
-                                VirtualKeyCode::Left  => state.seed_x -= 0.001,
-                                VirtualKeyCode::Right => state.seed_x += 0.001,
-                                // Detail Control
-                                VirtualKeyCode::W     => state.max_iter += 10,
-                                VirtualKeyCode::S     => if state.max_iter > 10 { state.max_iter -= 10 },
-                                _ => (),
-                            }
+                // Track key states for smooth gliding
+                WindowEvent::KeyboardInput { input: k_input, .. } => {
+                    let is_pressed = k_input.state == ElementState::Pressed;
+                    if let Some(key) = k_input.virtual_keycode {
+                        match key {
+                            VirtualKeyCode::Left  => input.left = is_pressed,
+                            VirtualKeyCode::Right => input.right = is_pressed,
+                            VirtualKeyCode::Up    => input.up = is_pressed,
+                            VirtualKeyCode::Down  => input.down = is_pressed,
+                            VirtualKeyCode::Space => if is_pressed {
+                                state.seed_x = rng.gen_range(-1.0..1.0);
+                                state.seed_y = rng.gen_range(-1.0..1.0);
+                            },
+                            VirtualKeyCode::W => if is_pressed { state.max_iter += 20 },
+                            VirtualKeyCode::S => if is_pressed && state.max_iter > 20 { state.max_iter -= 20 },
+                            _ => (),
                         }
                     }
                 }
 
-                // 2. MOUSE CONTROLS (Zoom/Reset)
-                WindowEvent::MouseInput { state: mouse_state, button, .. } => {
-                    if mouse_state == ElementState::Pressed {
+                WindowEvent::MouseInput { state: m_state, button, .. } => {
+                    if m_state == ElementState::Pressed {
                         match button {
                             MouseButton::Left => {
-                                let (m_x, m_y) = mouse_pos;
                                 let w = state.x_max - state.x_min;
                                 let h = state.y_max - state.y_min;
-                                let cx = state.x_min + (m_x / WIDTH as f64) * w;
-                                let cy = state.y_min + (m_y / HEIGHT as f64) * h;
-                                
-                                let zoom = 0.5; 
-                                state.x_min = cx - (m_x / WIDTH as f64) * w * zoom;
+                                let cx = state.x_min + (mouse_pos.0 / WIDTH as f64) * w;
+                                let cy = state.y_min + (mouse_pos.1 / HEIGHT as f64) * h;
+                                let zoom = 0.5;
+                                state.x_min = cx - (mouse_pos.0 / WIDTH as f64) * w * zoom;
                                 state.x_max = state.x_min + w * zoom;
-                                state.y_min = cy - (m_y / HEIGHT as f64) * h * zoom;
+                                state.y_min = cy - (mouse_pos.1 / HEIGHT as f64) * h * zoom;
                                 state.y_max = state.y_min + h * zoom;
                             }
                             MouseButton::Right => {
@@ -106,6 +103,13 @@ fn main() {
             },
 
             Event::MainEventsCleared => {
+                // Apply Velocity
+                let speed = 0.003;
+                if input.left  { state.seed_x -= speed; }
+                if input.right { state.seed_x += speed; }
+                if input.up    { state.seed_y += speed; }
+                if input.down  { state.seed_y -= speed; }
+
                 render_fractal(pixels.frame_mut(), &state);
                 window.request_redraw();
             }
